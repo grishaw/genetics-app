@@ -24,7 +24,7 @@ public class Main {
         String path = System.getProperty("REPO_HG_38_PATH");
         logger.debug("hg38 request, using path - " + path);
         if (path == null){
-            path = "s3a://genetics-app-repo/mutations_agg/";
+            throw new RuntimeException("empty repo path");
         }
         return getResult(index, path);
     }
@@ -35,7 +35,7 @@ public class Main {
         String path = System.getProperty("REPO_HG_19_PATH");
         logger.debug("hg19 request, using path - " + path);
         if (path == null){
-            path = "s3a://genetics-app-repo/mutations_agg/";
+            throw new RuntimeException("empty repo path");
         }
         return getResult(index, path);
     }
