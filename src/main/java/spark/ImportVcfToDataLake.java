@@ -69,6 +69,7 @@ public class ImportVcfToDataLake {
         return table;
     }
 
+
     static void writeToDataLake(Dataset df, String outputPath){
 
         df
