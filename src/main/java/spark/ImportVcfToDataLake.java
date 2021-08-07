@@ -25,8 +25,16 @@ public class ImportVcfToDataLake {
 
     static Dataset convertVcfsToDatalakeFormat(SparkSession spark, String inputPath){
 
+        Dataset table = getMutationsByIndex(spark, inputPath);
 
-        // ---------------- phase 1 -- read raw VCFs and perform basic cleaning and preparation
+        table = table
+                .withColumn("pos_bucket", col("pos").mod(lit(100)))
+                .groupBy("chrom", "pos_bucket", "pos").agg(collect_set(col("resp")).as("entries"));
+
+        return table;
+    }
+
+    static Dataset getMutationsByIndex(SparkSession spark, String inputPath){
 
         Dataset raw = spark.read().textFile(inputPath).where("not value like '#%'");
 
@@ -46,10 +54,6 @@ public class ImportVcfToDataLake {
 
         table = table.drop("_c2", "_c5", "_c6", "_c7", "_c8", "_c9");
 
-
-
-        //------------------ phase 2 -- aggregate by index
-
         table = table
                 .withColumn("homo-srr", when(col("homo"), col("srr")))
                 .withColumn("hetero-srr", when(not(col("homo")), col("srr")))
@@ -61,14 +65,11 @@ public class ImportVcfToDataLake {
 
         table = table
                 .withColumn("resp", struct("ref", "alt", "hom", "het"))
-                .drop("hom", "het")
-                .withColumn("pos_bucket", col("pos").mod(lit(100)));
-
-        table = table.groupBy("chrom", "pos_bucket", "pos").agg(collect_set(col("resp")).as("entries"));
+                .drop("hom", "het");
 
         return table;
-    }
 
+    }
 
     static void writeToDataLake(Dataset df, String outputPath){
 
