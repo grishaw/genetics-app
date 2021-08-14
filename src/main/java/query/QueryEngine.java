@@ -1,54 +1,78 @@
 package query;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.SparkSession;
+import scala.collection.JavaConversions;
+
+import java.util.Arrays;
+import java.util.HashSet;
 
 import static org.apache.spark.sql.functions.*;
 
 public class QueryEngine {
 
-    private static final Logger logger = LogManager.getLogger(QueryEngine.class);
+    private static final SparkSession spark;
 
-    public static String getMutationsByIndex(String chrom, int pos, String repoPath){
+    public static final String EMPTY_RESULT = "{}";
 
-        //TODO refine spark config
-        SparkSession spark = SparkSession.builder().appName("genetics-app").master("local[*]").getOrCreate();
+    static{
+
+        //TODO add summary data
+
+        spark = SparkSession.builder().appName("genetics-app").master("local[*]").getOrCreate();
 
         String awsKey = System.getProperty("AWS_ACCESS_KEY_ID");
         String awsSecret = System.getProperty("AWS_SECRET_ACCESS_KEY");
+
         if (awsKey != null && awsSecret != null) {
             Configuration conf = spark.sparkContext().hadoopConfiguration();
             conf.set("fs.s3a.access.key", awsKey);
             conf.set("fs.s3a.secret.key", awsSecret);
         }
 
-        String path = repoPath + String.format("chrom=%s/pos_bucket=%d/", "chr" + chrom.toUpperCase(), pos % 100);
+    }
 
-        Dataset df;
+    public static String getMutationsByIndex(String chrom, int pos, String repoPath, boolean rangesFormat){
 
-        //TODO refine
-        try {
-            df = spark.read().parquet(path);
-        }catch(Exception e){
-            logger.error(e);
-            return "{}";
-        }
+        String path = repoPath + String.format("chrom=%s/pos_bucket=%d/", "chr" + chrom.toUpperCase(),
+                rangesFormat ? Math.floorDiv(pos, 1_000_000) : pos % 100);
 
-        //TODO verify partitions are used, is 100 is optimal?
-        Dataset result = df.where(col("pos").equalTo(pos)).select(to_json(struct(col("entries")))).cache();
+        Dataset result = spark
+                .read().parquet(path)
+                .where(col("pos").equalTo(pos))
+                .select(to_json(struct(col("entries")))).cache();
 
-        if (result.count() == 1) {
-            return (String) result.as(Encoders.STRING()).collectAsList().get(0);
-        } else if (result.count() == 0){
-            logger.debug("empty result");
-            return "{}";
-        } else{
-            logger.error("invalid state - multiple results - " + result.count());
-            throw new IllegalStateException("multiple results");
-        }
+        return result.count() == 0 ? EMPTY_RESULT : (String) result.as(Encoders.STRING()).collectAsList().get(0);
+    }
+
+    public static String getMutationsByRange(String chrom, int posFrom, int posTo, String repoPath, int maxRecordsNum){
+
+        // for range queries we scan at most two buckets
+        String path1 = repoPath + String.format("chrom=%s/pos_bucket=%d/", "chr" + chrom.toUpperCase(), Math.floorDiv(posFrom, 1_000_000));
+        String path2 = repoPath + String.format("chrom=%s/pos_bucket=%d/", "chr" + chrom.toUpperCase(), Math.floorDiv(posTo, 1_000_000));
+
+
+        Dataset df = spark.read().parquet(JavaConversions.asScalaSet(new HashSet(Arrays.asList(path1, path2))).toSeq());
+
+        Dataset result = df
+                .where(col("pos").geq(posFrom))
+                .where(col("pos").leq(posTo))
+                .orderBy("pos")
+                .groupBy()
+                .agg(
+                        to_json(
+                                struct(
+                                        count("*").as("count"),
+                                        slice(
+                                                collect_list(
+                                                        struct(col("pos"), col("entries"))),1, maxRecordsNum
+                                        ).as("data")
+                                )
+                        )
+                );
+
+        return (String) result.as(Encoders.STRING()).collectAsList().get(0);
     }
 }
