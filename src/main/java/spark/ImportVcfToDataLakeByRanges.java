@@ -1,6 +1,7 @@
 package spark;
 
 import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 
@@ -13,12 +14,15 @@ public class ImportVcfToDataLakeByRanges {
 
         String inputPath = args[0];
         String outputPath = args[1];
+        String statusPath = args[2];
 
         SparkSession sparkSession = SparkSession.builder().appName(ImportVcfToDataLakeByRanges.class.getName()).getOrCreate();
 
         Dataset result = convertVcfsToDatalakeFormatByRanges(sparkSession, inputPath);
 
         writeToDataLake(result, outputPath);
+
+        writeStatus(getStatus(sparkSession, inputPath), outputPath);
 
 
     }
@@ -37,17 +41,9 @@ public class ImportVcfToDataLakeByRanges {
 
     static Dataset getMutationsByIndex(SparkSession spark, String inputPath){
 
-        Dataset raw = spark.read().textFile(inputPath).where("not value like '#%'");
+        Dataset raw = getRawInput(spark, inputPath);
 
-        Dataset table = spark.read().option("sep", "\t").csv(raw);
-
-        table = table
-                .withColumnRenamed("_c0", "chrom")
-                .withColumnRenamed("_c1", "pos")
-                .withColumnRenamed("_c3", "ref")
-                .withColumnRenamed("_c4", "alt");
-
-        table = table
+        Dataset table = raw
                 .withColumn("homo", when(col("_c9").startsWith("1/1"), true).otherwise(false))
                 .withColumn("srr", split(reverse(split(input_file_name(), "/")).getItem(0), "\\.").getItem(0))
                 .withColumn("chrom", split(col("chrom"), "_").getItem(0))
@@ -72,6 +68,20 @@ public class ImportVcfToDataLakeByRanges {
 
     }
 
+    private static Dataset getRawInput(SparkSession spark, String inputPath){
+
+        Dataset raw = spark.read().textFile(inputPath).where("not value like '#%'");
+
+        Dataset table = spark.read().option("sep", "\t").csv(raw);
+
+        return table
+                .withColumnRenamed("_c0", "chrom")
+                .withColumnRenamed("_c1", "pos")
+                .withColumnRenamed("_c3", "ref")
+                .withColumnRenamed("_c4", "alt");
+
+    }
+
     static void writeToDataLake(Dataset df, String outputPath){
 
         df
@@ -81,6 +91,25 @@ public class ImportVcfToDataLakeByRanges {
                 .parquet(outputPath);
 
 
+    }
+
+    static Dataset getStatus(SparkSession spark, String inputPath){
+
+        Dataset raw = getRawInput(spark, inputPath);
+
+        raw = raw.withColumn("file_name", input_file_name());
+
+        return raw
+                .groupBy()
+                .agg(
+                        countDistinct("chrom", "pos").as("coordinates_num"),
+                        countDistinct("chrom", "pos","ref", "alt").as("mutations_num"),
+                        countDistinct("file_name").as("samples_num")
+                ).withColumn("update_date", current_timestamp().cast(DataTypes.StringType));
+    }
+
+    static void writeStatus(Dataset df, String statusPath){
+        df.coalesce(1).write().mode(SaveMode.Append).json(statusPath);
     }
 
 }
