@@ -34,10 +34,9 @@ public class QueryEngine {
 
     }
 
-    public static String getMutationsByIndex(String chrom, int pos, String repoPath, boolean rangesFormat){
+    public static String getMutationsByIndex(String chrom, int pos, String repoPath){
 
-        String path = repoPath + String.format("chrom=%s/pos_bucket=%d/", "chr" + chrom.toUpperCase(),
-                rangesFormat ? Math.floorDiv(pos, 1_000_000) : pos % 100);
+        String path = repoPath + String.format("chrom=%s/pos_bucket=%d/", "chr" + chrom.toUpperCase(), Math.floorDiv(pos, 1_000_000));
 
         Dataset result = spark
                 .read().parquet(path)

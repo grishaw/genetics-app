@@ -47,16 +47,16 @@ public class Main {
     @GET
     @Path("/hg38/{index}")
     public Response getResult38(@PathParam("index") String index) {
-        return getResult(index, HG38_PATH, true, MAX_RANGE_RECORDS_IN_RESULT);
+        return getResult(index, HG38_PATH, MAX_RANGE_RECORDS_IN_RESULT);
     }
 
     @GET
     @Path("/hg19/{index}")
     public Response getResult19(@PathParam("index") String index) {
-        return getResult(index, HG19_PATH, true, MAX_RANGE_RECORDS_IN_RESULT);
+        return getResult(index, HG19_PATH, MAX_RANGE_RECORDS_IN_RESULT);
     }
 
-    Response getResult(String index, String repoPath, boolean rangesFormat, int maxRangeResult){
+    Response getResult(String index, String repoPath, int maxRangeResult){
 
         logger.debug("Got request for index: " + index + " from path " + repoPath);
 
@@ -72,7 +72,7 @@ public class Main {
                 String[] posSplit = indexSplit[1].trim().split("-");
 
                 if (posSplit.length == 1) {
-                    return handleSingleCoordinate(chrom, posSplit[0].trim(), repoPath, rangesFormat);
+                    return handleSingleCoordinate(chrom, posSplit[0].trim(), repoPath);
                 }else if (posSplit.length == 2){
                     return handleRange(posSplit[0].trim(), posSplit[1].trim(), chrom, repoPath, maxRangeResult) ;
                 }else{
@@ -86,7 +86,7 @@ public class Main {
 
     }
 
-    private static Response handleSingleCoordinate(String chromosome, String coordinate, String repoPath, boolean rangesFormat){
+    private static Response handleSingleCoordinate(String chromosome, String coordinate, String repoPath){
         int pos;
         try {
             pos = Integer.parseInt(coordinate);
@@ -97,7 +97,7 @@ public class Main {
         logger.debug("chrom = " + chromosome + ", pos = " + pos);
 
         try {
-            String result = QueryEngine.getMutationsByIndex(chromosome, pos, repoPath, rangesFormat);
+            String result = QueryEngine.getMutationsByIndex(chromosome, pos, repoPath);
             return Response.status(OK).entity(result).build();
         } catch (Exception e) {
             logger.error(e);
